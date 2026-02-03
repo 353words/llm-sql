@@ -1,0 +1,1 @@
+What's the average duration of bike rides in August across all years?
