@@ -19,11 +19,11 @@ import (
 )
 
 var (
-	//go:embed prompts/query.txt
+	//go:embed prompts/sql.txt
 	sqlPrompt string
 
-	//go:embed prompts/response.txt
-	responsPrompt string
+	//go:embed prompts/answer.txt
+	answerPrompt string
 
 	debugMode bool
 )
@@ -64,20 +64,20 @@ func debug(name, msg string) {
 		return
 	}
 
-	fmt.Printf("%s:\n%s\n", name, msg)
+	fmt.Printf("DEBUG: %s:\n%s\n", name, msg)
 }
 
 func queryLLM(ctx context.Context, llm *ollama.LLM, db *sql.DB, question string) (string, error) {
 	prompt := fmt.Sprintf(sqlPrompt, question)
 
-	completion, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt)
+	sql, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt)
 	if err != nil {
 		return "", fmt.Errorf("get SQL: %w", err)
 	}
 
-	debug("SQL", completion)
+	debug("SQL", sql)
 
-	rows, err := db.QueryContext(ctx, completion)
+	rows, err := db.QueryContext(ctx, sql)
 	if err != nil {
 		return "", fmt.Errorf("query: %w", err)
 	}
@@ -90,12 +90,12 @@ func queryLLM(ctx context.Context, llm *ollama.LLM, db *sql.DB, question string)
 
 	debug("CSV", csv)
 
-	prompt = fmt.Sprintf(responsPrompt, question, csv)
-	completion, err = llms.GenerateFromSinglePrompt(ctx, llm, prompt)
+	prompt = fmt.Sprintf(answerPrompt, question, csv)
+	answer, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt)
 	if err != nil {
 		return "", fmt.Errorf("get SQL: %w", err)
 	}
-	return completion, nil
+	return answer, nil
 }
 
 func main() {
@@ -125,7 +125,7 @@ func main() {
 	defer db.Close()
 
 	ctx := context.Background()
-	fmt.Print("Welcome to bikes data system! Ask away\n>>> ")
+	fmt.Print("Welcome to bikes data system! Ask away.\n>>> ")
 	s := bufio.NewScanner(os.Stdin)
 	for s.Scan() {
 		question := strings.TrimSpace(s.Text())
