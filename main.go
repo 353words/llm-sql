@@ -90,7 +90,7 @@ func queryLLM(ctx context.Context, llm *ollama.LLM, db *sql.DB, question string)
 
 	debug("CSV", csv)
 
-	prompt = fmt.Sprintf(answerPrompt, question, csv)
+	prompt = fmt.Sprintf(answerPrompt, question, sql, csv)
 	answer, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt)
 	if err != nil {
 		return "", fmt.Errorf("get SQL: %w", err)

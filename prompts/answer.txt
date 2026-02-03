@@ -1,8 +1,10 @@
-Provide an answer to the user question with the following result from the database (in CSV format).
+Provide an answer to the user question with the following results from the database.
 
-
-User qustion:
+User question:
 %s
 
-Database results:
+SQL query:
+%s
+
+Database results in CSV format:
 %s

@@ -85,38 +85,38 @@ Let's look at the loop that asks the user for a question and returns an answer:
 **Listing 2: User Loop**
 
 ```go
-	ctx := context.Background()
-	fmt.Print("Welcome to bikes data system! Ask away.\n>>> ")
-	s := bufio.NewScanner(os.Stdin)
-	for s.Scan() {
-		question := strings.TrimSpace(s.Text())
-		if question == "" {
-			fmt.Print(">>> ")
-			continue
-		}
-
-		answer, err := queryLLM(ctx, llm, db, question)
-		if err != nil {
-			fmt.Println("ERROR:", err)
-		} else {
-			fmt.Println(answer)
-		}
-		fmt.Print(">>> ")
-	}
-
-	if err := s.Err(); err != nil && !errors.Is(err, io.EOF) {
-		fmt.Fprintf(os.Stderr, "error: scan: %s\n", err)
-		os.Exit(1)
-	}
-	fmt.Println("\nCiao!")
-}
+127     ctx := context.Background()
+128     fmt.Print("Welcome to bikes data system! Ask away.\n>>> ")
+129     s := bufio.NewScanner(os.Stdin)
+130     for s.Scan() {
+131         question := strings.TrimSpace(s.Text())
+132         if question == "" {
+133             fmt.Print(">>> ")
+134             continue
+135         }
+136 
+137         answer, err := queryLLM(ctx, llm, db, question)
+138         if err != nil {
+139             fmt.Println("ERROR:", err)
+140         } else {
+141             fmt.Println(answer)
+142         }
+143         fmt.Print(">>> ")
+144     }
+145 
+146     if err := s.Err(); err != nil && !errors.Is(err, io.EOF) {
+147         fmt.Fprintf(os.Stderr, "error: scan: %s\n", err)
+148         os.Exit(1)
+149     }
+150     fmt.Println("\nCiao!")
+151 }
 
 ```
 
 Listing 2 shows the question/answer loop, which is the second part of `main`.
-On line 87 you use `context.Background()` as the context. You'd probably want to have a time limit.
-One line 88 you print a greeting and on line 89 you create a scanner.
-One lines 90-104 you loop over user questions and call `queryLLM` to get an answer.
+On line 127 you use `context.Background()` as the context. You'd probably want to have a time limit.
+One line 128 you print a greeting and on line 129 you create a scanner.
+One lines 130-144 you loop over user questions and call `queryLLM` to get an answer.
 
 ### Querying LLMs
 
@@ -171,13 +171,15 @@ You use `%s` as a placeholder for the user question.
 The answer prompt is:
 
 ```
-Provide an answer to the user question with the following result from the database (in CSV format).
-
+Provide an answer to the user question with the following results from the database.
 
 User qustion:
 %s
 
-Database results:
+SQL query:
+%s
+
+Database results in CSV format:
 %s
 ```
 
@@ -211,7 +213,7 @@ Armed with user question and prompts, you can now query the LLM.
 090 
 091     debug("CSV", csv)
 092 
-093     prompt = fmt.Sprintf(answerPrompt, question, csv)
+093     prompt = fmt.Sprintf(answerPrompt, question, sql, csv)
 094     answer, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt)
 095     if err != nil {
 096         return "", fmt.Errorf("get SQL: %w", err)
@@ -290,6 +292,14 @@ The database indicates there are **72 stations** in total.
 The rides took place between **December 21, 2013**, and **July 31, 2017**.
 >>> How many rides are in January 2014?
 The database indicates that there were **3,375 rides** in January 2014.
+>>> What is the longest ride?
+The longest ride in the database is the trip with the following details:
+
+- **Trip ID:** 9900012849
+- **Bike ID:** 19
+- **Start Station:** Barton Springs @ Kinney Ave
+- **End Station:** Stolen
+- **Duration:** **21,296 minutes** (which is approximately **358.27 hours** or **15 days and 8 hours**).
 >>>
 Ciao!
 ```
@@ -298,5 +308,6 @@ Ciao!
 
 In about 150 lines of code we wrote a system that allow users to query a database using plain English.
 Using LLMs from Go is simple, most of the time you'll spend tweaking prompts to get good results.
+As usual, you can see the code and database [in the GitHub repo](https://github.com/353words/llm-sql)
 
 How are you using LLMs in your Go code? Let me know at miki@ardanlabs.com
