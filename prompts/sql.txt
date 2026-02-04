@@ -7,6 +7,3 @@ CREATE TABLE trips(bikeid DOUBLE, checkout_time TIME, duration_minutes BIGINT, e
 
 
 Do not explain your answer, return only the SQL statement.
-
-# User Query
-%s

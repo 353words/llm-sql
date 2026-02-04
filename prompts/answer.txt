@@ -1,10 +1,1 @@
-Provide an answer to the user question with the following results from the database.
-
-User question:
-%s
-
-SQL query:
-%s
-
-Database results in CSV format:
-%s
+Provide an answer, in plain English, to the user question from the preceeding SQL query and results in CSV format.

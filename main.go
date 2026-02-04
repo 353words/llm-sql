@@ -14,8 +14,7 @@ import (
 	"strings"
 
 	_ "github.com/duckdb/duckdb-go/v2"
-	"github.com/tmc/langchaingo/llms"
-	"github.com/tmc/langchaingo/llms/ollama"
+	"github.com/ollama/ollama/api"
 )
 
 var (
@@ -33,9 +32,12 @@ func rowsToCSV(rows *sql.Rows) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	var buf bytes.Buffer
 	wtr := csv.NewWriter(&buf)
-	wtr.Write(cols)
+	if err := wtr.Write(cols); err != nil {
+		return "", err
+	}
 
 	vals := make([]any, len(cols))
 	ptrs := make([]any, len(cols))
@@ -52,7 +54,10 @@ func rowsToCSV(rows *sql.Rows) (string, error) {
 		for i, v := range vals {
 			strs[i] = fmt.Sprintf("%v", v)
 		}
-		wtr.Write(strs)
+
+		if err := wtr.Write(strs); err != nil {
+			return "", err
+		}
 	}
 	wtr.Flush()
 
@@ -67,12 +72,33 @@ func debug(name, msg string) {
 	fmt.Printf("DEBUG: %s:\n%s\n", name, msg)
 }
 
-func queryLLM(ctx context.Context, llm *ollama.LLM, db *sql.DB, question string) (string, error) {
-	prompt := fmt.Sprintf(sqlPrompt, question)
+func chat(ctx context.Context, client *api.Client, req *api.ChatRequest) (string, error) {
+	var buf strings.Builder
 
-	sql, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt)
+	err := client.Chat(ctx, req, func(resp api.ChatResponse) error {
+		buf.WriteString(resp.Message.Content)
+		return nil
+	})
+
 	if err != nil {
-		return "", fmt.Errorf("get SQL: %w", err)
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
+func queryLLM(ctx context.Context, client *api.Client, model string, db *sql.DB, question string) (string, error) {
+	req := api.ChatRequest{
+		Model: model,
+		Messages: []api.Message{
+			{Role: "system", Content: sqlPrompt},
+			{Role: "user", Content: question},
+		},
+	}
+
+	sql, err := chat(ctx, client, &req)
+	if err != nil {
+		return "", err
 	}
 
 	debug("SQL", sql)
@@ -89,12 +115,18 @@ func queryLLM(ctx context.Context, llm *ollama.LLM, db *sql.DB, question string)
 	}
 
 	debug("CSV", csv)
+	req.Messages = append(
+		req.Messages,
+		api.Message{Role: "system", Content: "SQL:\n" + sql},
+		api.Message{Role: "system", Content: "Reults csv:\n" + csv},
+		api.Message{Role: "system", Content: answerPrompt},
+	)
 
-	prompt = fmt.Sprintf(answerPrompt, question, sql, csv)
-	answer, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt)
+	answer, err := chat(ctx, client, &req)
 	if err != nil {
-		return "", fmt.Errorf("get SQL: %w", err)
+		return "", err
 	}
+
 	return answer, nil
 }
 
@@ -111,7 +143,7 @@ func main() {
 
 	debugMode = os.Getenv("DEBUG") != ""
 
-	llm, err := ollama.New(ollama.WithModel(model))
+	client, err := api.ClientFromEnvironment()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: connect to ollama: %s\n", err)
 		os.Exit(1)
@@ -125,6 +157,7 @@ func main() {
 	defer db.Close()
 
 	ctx := context.Background()
+
 	fmt.Print("Welcome to bikes data system! Ask away.\n>>> ")
 	s := bufio.NewScanner(os.Stdin)
 	for s.Scan() {
@@ -134,7 +167,7 @@ func main() {
 			continue
 		}
 
-		answer, err := queryLLM(ctx, llm, db, question)
+		answer, err := queryLLM(ctx, client, model, db, question)
 		if err != nil {
 			fmt.Println("ERROR:", err)
 		} else {
