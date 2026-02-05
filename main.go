@@ -118,7 +118,7 @@ func queryLLM(ctx context.Context, client *api.Client, model string, db *sql.DB,
 	req.Messages = append(
 		req.Messages,
 		api.Message{Role: "system", Content: "SQL:\n" + sql},
-		api.Message{Role: "system", Content: "Reults csv:\n" + csv},
+		api.Message{Role: "system", Content: "Results CSV:\n" + csv},
 		api.Message{Role: "system", Content: answerPrompt},
 	)
 
