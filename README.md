@@ -152,7 +152,7 @@ Play around with several versions of prompts until you get good and consistent r
 The query prompt is:
 
 ```
-# Insturctions
+# Instructions
 
 Convert a user query into SQL given the following schema:
 
@@ -173,7 +173,7 @@ The answer prompt is:
 ```
 Provide an answer to the user question with the following results from the database.
 
-User qustion:
+User question:
 %s
 
 SQL query:

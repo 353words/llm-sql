@@ -1,4 +1,4 @@
-# Insturctions
+# Instructions
 
 Convert a user query into SQL given the following schema:
 
