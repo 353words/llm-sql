@@ -20,16 +20,28 @@ This will download the code, and the database file containing the data (`bikes.d
 
 _Note: The data is from the [Austin Bike Share dataset](https://www.kaggle.com/datasets/jboysen/austin-bike)._
 
-Next, you need to install since [ollama](https://ollama.com/) as the system to run LLMs.
-You can run `brew install ollama` or by download it from [the download site](https://ollama.com/download).
+Next, you need to install our very own [kronk](https://github.com/ardanlabs/kronk/) as the system to run LLMs.
 
-Start `ollama` with `ollama serve`.
-In a second terminal, pull the LLM model you're going to use by running `ollama pull ministral-3:latest`.
+_Note: You can use [ollama](https://ollama.com/), OpenAI, Claude and many other systems as well. I'm using `kronk` since it runs locally (no charges) and supports OpenAI API._
+
+Run `go install github.com/ardanlabs/kronk/cmd/kronk@latest`, `kronk` will be installed to `$(go env GOPATH)/bin`, 
+which in most systems is `~/go/bin`. You can run `kronk` as `~/go/bin/kronk` or add `$(go env GOPATH)/bin` to the `PATH` environment variable.
+
+Start kronk with: `kronk server start`.
+
+Next, you need to install the model, we're going to use the `ministral` model. In a second terminal run:
+
+```
+$ kronk model pull https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF/resolve/main/Ministral-3-14B-Instruct-2512-Q4_0.gguf
+```
+
+You might want to use other models, you can query HuggingFace to find a suitable model and then get the URL for the `.gguf` file.
+
 
 ### Architecture Overview
 
 LLMs don't have memory, in every call you need to provide all the relevant information they need (called context) in order to answer you.
-Out application flow will be:
+Our application flow will be:
 
 - Ask LLM to generate SQL based on user question
 - Query the database with generated SQL
@@ -45,36 +57,41 @@ First, you'll create connections to the `ollama` and to the database.
 
 
 ```go
-101 func main() {
-102     model := os.Getenv("MODEL")
-103     if model == "" {
-104         model = "ministral-3"
-105     }
-106 
-107     dbFile := os.Getenv("DB_FILE")
-108     if dbFile == "" {
-109         dbFile = "bikes.ddb"
-110     }
-111 
-112     debugMode = os.Getenv("DEBUG") != ""
-113 
-114     llm, err := ollama.New(ollama.WithModel(model))
-115     if err != nil {
-116         fmt.Fprintf(os.Stderr, "error: connect to ollama: %s\n", err)
-117         os.Exit(1)
-118     }
-119 
-120     db, err := sql.Open("duckdb", dbFile)
-121     if err != nil {
-122         fmt.Fprintf(os.Stderr, "error: open db: %s\n", err)
-123         os.Exit(1)
-124     }
-125     defer db.Close()
+092 func main() {
+093     if os.Getenv("DEBUG") != "" {
+094         h := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
+095         log := slog.New(h)
+096         slog.SetDefault(log)
+097     }
+098 
+099     baseURL := "http://localhost:8080/v1"
+100     if host := os.Getenv("KRONK_WEB_API_HOST"); host != "" {
+101         baseURL = host + "/v1"
+102     }
+103 
+104     llm, err := openai.New(
+105         openai.WithBaseURL(baseURL),
+106         openai.WithToken("x"),
+107         openai.WithModel("Ministral-3-14B-Instruct-2512-Q4_0"),
+108     )
+109 
+110     if err != nil {
+111         fmt.Fprintf(os.Stderr, "error: connect: %s\n", err)
+112         os.Exit(1)
+113     }
+114 
+115     db, err := sql.Open("duckdb", "bikes.ddb")
+116     if err != nil {
+117         fmt.Fprintf(os.Stderr, "error: open db: %s\n", err)
+118         os.Exit(1)
+119     }
+120     defer db.Close()
 ```
 
 Listing 1 shows initial connection.
-On lines 102-112 you get options from the environment: The model to use, the database file location and if you're in debug mode.
-On lines 114-118 you connect to `ollama` with the required model and on lines 120-125 you connect to the database.
+On lines 93-101 you get options from the environment: If you're in debug mode and the kronk server base URL.
+On lines 104-108 you connect to `kronk` with the required model and base URL. Since the `openai` requires a key, we create a fake key that `kronk` will ignore.  
+On lines 115-120 you connect to the database.
 
 _Note: I'm using [duckdb](https://duckdb.org/) since it's simple to use, but this code can work with any SQL database._
 
@@ -85,43 +102,45 @@ Let's look at the loop that asks the user for a question and returns an answer:
 **Listing 2: User Loop**
 
 ```go
-127     ctx := context.Background()
-128     fmt.Print("Welcome to bikes data system! Ask away.\n>>> ")
-129     s := bufio.NewScanner(os.Stdin)
-130     for s.Scan() {
-131         question := strings.TrimSpace(s.Text())
-132         if question == "" {
-133             fmt.Print(">>> ")
-134             continue
-135         }
-136 
-137         answer, err := queryLLM(ctx, llm, db, question)
-138         if err != nil {
-139             fmt.Println("ERROR:", err)
-140         } else {
-141             fmt.Println(answer)
-142         }
-143         fmt.Print(">>> ")
-144     }
-145 
-146     if err := s.Err(); err != nil && !errors.Is(err, io.EOF) {
-147         fmt.Fprintf(os.Stderr, "error: scan: %s\n", err)
-148         os.Exit(1)
-149     }
-150     fmt.Println("\nCiao!")
-151 }
+122     ctx := context.Background()
+123     fmt.Print("Welcome to bikes data system! Ask away.\n>>> ")
+124     s := bufio.NewScanner(os.Stdin)
+125 
+126     for s.Scan() {
+127         question := strings.TrimSpace(s.Text())
+128         if question == "" {
+129             fmt.Print(">>> ")
+130             continue
+131         }
+132 
+133         answer, err := queryLLM(ctx, llm, db, question)
+134         if err != nil {
+135             fmt.Println("ERROR:", err)
+136         } else {
+137             fmt.Println(answer)
+138         }
+139         fmt.Print(">>> ")
+140     }
+141 
+142     if err := s.Err(); err != nil && !errors.Is(err, io.EOF) {
+143         fmt.Fprintf(os.Stderr, "error: scan: %s\n", err)
+144         os.Exit(1)
+145     }
+146 
+147     fmt.Println("\nCiao!")
+148 }
 
 ```
 
 Listing 2 shows the question/answer loop, which is the second part of `main`.
-On line 127 you use `context.Background()` as the context. You'd probably want to have a time limit.
-One line 128 you print a greeting and on line 129 you create a scanner.
-One lines 130-144 you loop over user questions and call `queryLLM` to get an answer.
+On line 122 you use `context.Background()` as the context. You'd probably want to have a time limit.
+One line 123 you print a greeting and on line 124 you create a scanner.
+One lines 126-140 you loop over user questions and call `queryLLM` to get an answer.
 
 ### Querying LLMs
 
 Before querying the LLM, you need to construct a prompt.
-You have two prompts:
+You need two prompts:
 - Generate SQL query from user question
 - Given user question and answer from database, answer the user
 
@@ -130,26 +149,23 @@ You have two prompts:
 Listing 3 shows the prompts.
 
 ```go
-
 021 var (
 022     //go:embed prompts/sql.txt
 023     sqlPrompt string
 024 
 025     //go:embed prompts/answer.txt
 026     answerPrompt string
-027 
-028     debugMode bool
-029 )
+027 )
 ```
 
 Listing 3 shows the prompts
-On lines 22-26 you use `go:embed` directive to embed the prompt from a text file.
+On lines 21-27 you use `go:embed` directive to embed the prompt from a text file.
 
 Using text files is easier and allows you to edit and play with prompt without changing the code.
 Crafting a good prompt is an art (that I'm still learning).
 Play around with several versions of prompts until you get good and consistent results from the LLM.
 
-The query prompt is:
+The SQL prompt is:
 
 ```
 # Instructions
@@ -160,7 +176,7 @@ CREATE TABLE stations(latitude DOUBLE, "location" VARCHAR, longitude DOUBLE, "na
 CREATE TABLE trips(bikeid DOUBLE, checkout_time TIME, duration_minutes BIGINT, end_station_id DOUBLE, end_station_name VARCHAR, "month" DOUBLE, start_station_id DOUBLE, start_station_name VARCHAR, start_time TIMESTAMP, subscriber_type VARCHAR, trip_id BIGINT, "year" DOUBLE);
 
 
-Do not explain your answer, return only the SQL statement.
+Do not explain your answer, return only the SQL statement without any markdown or other decorations.
 
 # User Query
 %s
@@ -185,97 +201,90 @@ Database results in CSV format:
 
 ### Querying the LLM
 
-Armed with user question and prompts, you can now query the LLM.
+Armed with user questions and the prompts, you can now query the LLM.
 
 **Listing 4: queryLLM**
 
 ```go
-070 func queryLLM(ctx context.Context, llm *ollama.LLM, db *sql.DB, question string) (string, error) {
-071     prompt := fmt.Sprintf(sqlPrompt, question)
-072 
-073     sql, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt)
-074     if err != nil {
-075         return "", fmt.Errorf("get SQL: %w", err)
-076     }
-077 
-078     debug("SQL", sql)
-079 
-080     rows, err := db.QueryContext(ctx, sql)
-081     if err != nil {
-082         return "", fmt.Errorf("query: %w", err)
-083     }
-084     defer rows.Close()
-085 
-086     csv, err := rowsToCSV(rows)
-087     if err != nil {
-088         return "", fmt.Errorf("scan: %w", err)
-089     }
-090 
-091     debug("CSV", csv)
-092 
-093     prompt = fmt.Sprintf(answerPrompt, question, sql, csv)
-094     answer, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt)
-095     if err != nil {
-096         return "", fmt.Errorf("get SQL: %w", err)
-097     }
-098     return answer, nil
-099 }
+060 func queryLLM(ctx context.Context, llm *openai.LLM, db *sql.DB, question string) (string, error) {
+061     prompt := fmt.Sprintf(sqlPrompt, question)
+062 
+063     sql, err := llm.Call(ctx, prompt)
+064     if err != nil {
+065         return "", fmt.Errorf("get SQL: %w", err)
+066     }
+067 
+068     slog.Debug("SQL", "query", sql)
+069 
+070     rows, err := db.QueryContext(ctx, sql)
+071     if err != nil {
+072         return "", fmt.Errorf("query: %w", err)
+073     }
+074     defer rows.Close()
+075 
+076     csv, err := rowsToCSV(rows)
+077     if err != nil {
+078         return "", fmt.Errorf("scan: %w", err)
+079     }
+080 
+081     slog.Debug("CSV", "data", csv)
+082 
+083     prompt = fmt.Sprintf(answerPrompt, question, sql, csv)
+084     answer, err := llm.Call(ctx, prompt)
+085     if err != nil {
+086         return "", fmt.Errorf("get SQL: %w", err)
+087     }
+088 
+089     return answer, nil
+090 }
 ```
 
-Listing 4 show how to query the LLM.
-On line 71 you create prompt that will return SQL and on line 74 we query the LLM with the prompt.
-On line 80 you query the database using the returned SQL.
-One line 86 you convert the return database rows to CSV.
-On line 93 you generate prompt for the final answer and on line 94 we call the LLM with this prompt.
+Listing 4 shows how to query the LLM.
+On line 61 you create a prompt that will return SQL and on line 64 you query the LLM with the prompt.
+On line 70 you query the database using the returned SQL.
+One line 76 you convert the return database rows to CSV.
+On line 83 you generate a prompt for the final answer and on line 84 you call the LLM with this prompt.
 Finally on line 98 you return the answer from the LLM.
 
-_Note: The `debug` function prints intermediate results. It is very helpful when debugging your application. To see debug prints, set the `DEBUG` environment variable to non-empty value (say `yes`)._
+_Note: On lines 68 and 81 you use `slog.Debug` to emit intermediate results, this is very helpful when debugging your applications. `slog.Debug` will emit logs only if the `DEBUG` environment variable is set to non-empty value (say `yes`)._
 
-**Listing 5: Utility Functions**
+
+**Listing 5: Convert Rows to CSV**
 
 ```go
-062 func debug(name, msg string) {
-063     if !debugMode {
-064         return
-065     }
-066 
-067     fmt.Printf("DEBUG: %s:\n%s\n", name, msg)
-068 }
-...
-
-031 func rowsToCSV(rows *sql.Rows) (string, error) {
-032     cols, err := rows.Columns()
-033     if err != nil {
-034         return "", err
-035     }
-036     var buf bytes.Buffer
-037     wtr := csv.NewWriter(&buf)
-038     wtr.Write(cols)
-039 
-040     vals := make([]any, len(cols))
-041     ptrs := make([]any, len(cols))
-042     for i := range vals {
-043         ptrs[i] = &vals[i]
-044     }
-045     strs := make([]string, len(cols))
-046 
-047     for rows.Next() {
-048         if err := rows.Scan(ptrs...); err != nil {
-049             return "", err
-050         }
-051 
-052         for i, v := range vals {
-053             strs[i] = fmt.Sprintf("%v", v)
-054         }
-055         wtr.Write(strs)
-056     }
-057     wtr.Flush()
-058 
-059     return buf.String(), nil
-060 }
+029 func rowsToCSV(rows *sql.Rows) (string, error) {
+030     cols, err := rows.Columns()
+031     if err != nil {
+032         return "", err
+033     }
+034     var buf bytes.Buffer
+035     wtr := csv.NewWriter(&buf)
+036     wtr.Write(cols)
+037 
+038     vals := make([]any, len(cols))
+039     ptrs := make([]any, len(cols))
+040     for i := range vals {
+041         ptrs[i] = &vals[i]
+042     }
+043     strs := make([]string, len(cols))
+044 
+045     for rows.Next() {
+046         if err := rows.Scan(ptrs...); err != nil {
+047             return "", err
+048         }
+049 
+050         for i, v := range vals {
+051             strs[i] = fmt.Sprintf("%v", v)
+052         }
+053         wtr.Write(strs)
+054     }
+055     wtr.Flush()
+056 
+057     return buf.String(), nil
+058 }
 ```
 
-Listing 5 shows two utility functions: `debug` and `rowsToCSV`. Both of these functions are not essential so I'm not going to explain the code. I'm including it here for completeness.
+Listing 5 shows the `rowsToCSV` utility function. It is not essential so I'm not going to explain the code. I'm including it here for completeness.
 
 ### Running The code
 
@@ -284,29 +293,25 @@ Finally, you can run the code (use `CTRL-D` to quit):
 ```
 $ go run .
 Welcome to bikes data system! Ask away.
->>> How many rides are in the database?
-The database contains **649,231 rides**.
+>>> How many rides in the database?
+The database contains **649,231 rides** in the `trips` table.
 >>> How many stations are there?
-The database indicates there are **72 stations** in total.
+There are **72 stations** in total.
 >>> What is the date range of the rides?
-The rides took place between **December 21, 2013**, and **July 31, 2017**.
+The date range of the rides in the dataset spans from **December 21, 2013**, to **July 31, 2017**.
 >>> How many rides are in January 2014?
-The database indicates that there were **3,375 rides** in January 2014.
+The number of rides in January 2014 is **3,375**.
 >>> What is the longest ride?
-The longest ride in the database is the trip with the following details:
+The longest single ride recorded in the database was on **bike ID 19**, with a duration of **21,296 minutes** (which is approximately **354.93 hours** or **14 days and 20.93 hours** of continuous riding).
 
-- **Trip ID:** 9900012849
-- **Bike ID:** 19
-- **Start Station:** Barton Springs @ Kinney Ave
-- **End Station:** Stolen
-- **Duration:** **21,296 minutes** (which is approximately **358.27 hours** or **15 days and 8 hours**).
+This suggests an extremely long trip—likely spanning multiple days—far exceeding typical bike rental durations. Would you like to explore further details about this ride (e.g., route, date, or other metrics)?
 >>>
 Ciao!
 ```
 
 ### Summary
 
-In about 150 lines of code we wrote a system that allow users to query a database using plain English.
+In about 150 lines of code we wrote a system that allows users to query a database using plain English.
 Using LLMs from Go is simple, most of the time you'll spend tweaking prompts to get good results.
 As usual, you can see the code and database [in the GitHub repo](https://github.com/353words/llm-sql)
 

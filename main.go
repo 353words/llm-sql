@@ -10,12 +10,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 
 	_ "github.com/duckdb/duckdb-go/v2"
-	"github.com/tmc/langchaingo/llms"
-	"github.com/tmc/langchaingo/llms/ollama"
+	"github.com/tmc/langchaingo/llms/openai"
 )
 
 var (
@@ -24,8 +24,6 @@ var (
 
 	//go:embed prompts/answer.txt
 	answerPrompt string
-
-	debugMode bool
 )
 
 func rowsToCSV(rows *sql.Rows) (string, error) {
@@ -59,23 +57,15 @@ func rowsToCSV(rows *sql.Rows) (string, error) {
 	return buf.String(), nil
 }
 
-func debug(name, msg string) {
-	if !debugMode {
-		return
-	}
-
-	fmt.Printf("DEBUG: %s:\n%s\n", name, msg)
-}
-
-func queryLLM(ctx context.Context, llm *ollama.LLM, db *sql.DB, question string) (string, error) {
+func queryLLM(ctx context.Context, llm *openai.LLM, db *sql.DB, question string) (string, error) {
 	prompt := fmt.Sprintf(sqlPrompt, question)
 
-	sql, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt)
+	sql, err := llm.Call(ctx, prompt)
 	if err != nil {
 		return "", fmt.Errorf("get SQL: %w", err)
 	}
 
-	debug("SQL", sql)
+	slog.Debug("SQL", "query", sql)
 
 	rows, err := db.QueryContext(ctx, sql)
 	if err != nil {
@@ -88,36 +78,41 @@ func queryLLM(ctx context.Context, llm *ollama.LLM, db *sql.DB, question string)
 		return "", fmt.Errorf("scan: %w", err)
 	}
 
-	debug("CSV", csv)
+	slog.Debug("CSV", "data", csv)
 
 	prompt = fmt.Sprintf(answerPrompt, question, sql, csv)
-	answer, err := llms.GenerateFromSinglePrompt(ctx, llm, prompt)
+	answer, err := llm.Call(ctx, prompt)
 	if err != nil {
 		return "", fmt.Errorf("get SQL: %w", err)
 	}
+
 	return answer, nil
 }
 
 func main() {
-	model := os.Getenv("MODEL")
-	if model == "" {
-		model = "ministral-3"
+	if os.Getenv("DEBUG") != "" {
+		h := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})
+		log := slog.New(h)
+		slog.SetDefault(log)
 	}
 
-	dbFile := os.Getenv("DB_FILE")
-	if dbFile == "" {
-		dbFile = "bikes.ddb"
+	baseURL := "http://localhost:8080/v1"
+	if host := os.Getenv("KRONK_WEB_API_HOST"); host != "" {
+		baseURL = host + "/v1"
 	}
 
-	debugMode = os.Getenv("DEBUG") != ""
+	llm, err := openai.New(
+		openai.WithBaseURL(baseURL),
+		openai.WithToken("x"),
+		openai.WithModel("Ministral-3-14B-Instruct-2512-Q4_0"),
+	)
 
-	llm, err := ollama.New(ollama.WithModel(model))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: connect to ollama: %s\n", err)
+		fmt.Fprintf(os.Stderr, "error: connect: %s\n", err)
 		os.Exit(1)
 	}
 
-	db, err := sql.Open("duckdb", dbFile)
+	db, err := sql.Open("duckdb", "bikes.ddb")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: open db: %s\n", err)
 		os.Exit(1)
@@ -127,6 +122,7 @@ func main() {
 	ctx := context.Background()
 	fmt.Print("Welcome to bikes data system! Ask away.\n>>> ")
 	s := bufio.NewScanner(os.Stdin)
+
 	for s.Scan() {
 		question := strings.TrimSpace(s.Text())
 		if question == "" {
@@ -147,5 +143,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error: scan: %s\n", err)
 		os.Exit(1)
 	}
+
 	fmt.Println("\nCiao!")
 }

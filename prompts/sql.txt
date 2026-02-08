@@ -6,7 +6,7 @@ CREATE TABLE stations(latitude DOUBLE, "location" VARCHAR, longitude DOUBLE, "na
 CREATE TABLE trips(bikeid DOUBLE, checkout_time TIME, duration_minutes BIGINT, end_station_id DOUBLE, end_station_name VARCHAR, "month" DOUBLE, start_station_id DOUBLE, start_station_name VARCHAR, start_time TIMESTAMP, subscriber_type VARCHAR, trip_id BIGINT, "year" DOUBLE);
 
 
-Do not explain your answer, return only the SQL statement.
+Do not explain your answer, return only the SQL statement without any markdown or other decorations.
 
 # User Query
 %s
