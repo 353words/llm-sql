@@ -1,4 +1,5 @@
 Provide an answer to the user question with the following results from the database.
+Don't ask follow up questions.
 
 User question:
 %s
