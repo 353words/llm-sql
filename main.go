@@ -57,6 +57,20 @@ func rowsToCSV(rows *sql.Rows) (string, error) {
 	return buf.String(), nil
 }
 
+func cleanSQL(sql string) string {
+	sql = strings.TrimSpace(sql)
+	for _, m := range []string{"```sql", "```"} {
+		if strings.HasPrefix(sql, m) {
+			sql = sql[len(m):]
+		}
+		if strings.HasSuffix(sql, m) {
+			sql = sql[:len(sql)-len(m)]
+		}
+	}
+
+	return sql
+}
+
 func queryLLM(ctx context.Context, llm *openai.LLM, db *sql.DB, question string) (string, error) {
 	prompt := fmt.Sprintf(sqlPrompt, question)
 
@@ -65,6 +79,7 @@ func queryLLM(ctx context.Context, llm *openai.LLM, db *sql.DB, question string)
 		return "", fmt.Errorf("get SQL: %w", err)
 	}
 
+	sql = cleanSQL(sql)
 	slog.Debug("SQL", "query", sql)
 
 	rows, err := db.QueryContext(ctx, sql)
@@ -104,7 +119,8 @@ func main() {
 	llm, err := openai.New(
 		openai.WithBaseURL(baseURL),
 		openai.WithToken("x"),
-		openai.WithModel("Ministral-3-14B-Instruct-2512-Q4_0"),
+		// openai.WithModel("Ministral-3-14B-Instruct-2512-Q4_0"),
+		openai.WithModel("Ministral-3-8B-Instruct-2512-Q2_K"),
 	)
 
 	if err != nil {
