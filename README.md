@@ -10,22 +10,23 @@ author = "mikit"
 
 ### Introduction
 
-In this post you'll see how you can create a system that allows users to query a relational database using plain English.
-This allows users not familiar with SQL or business intelligence systems to get insights from data.
+In this post you'll see how you can create a system that allows users to query a relational database using plain English. This allows users not familiar with SQL or business intelligence systems to get insights from data.
 
 ### Setting Up
 
-If you want to follow along, you'll need to clone the code from [the GitHub repo](https://github.com/353words/llm-sql).
-This will download the code, and the database file containing the data (`bikes.ddb`)
+If you want to follow along, you'll need to clone the code from [the GitHub repo](https://github.com/353words/llm-sql). This will download the code, and the database file containing the data (`bikes.ddb`)
 
 _Note: The data is from the [Austin Bike Share dataset](https://www.kaggle.com/datasets/jboysen/austin-bike)._
 
-Next, you need to install our very own [kronk](https://github.com/ardanlabs/kronk/) as the system to run LLMs.
+Next, you need to install our very own [Kronk Model Server](https://github.com/ardanlabs/kronk/) as the system to run LLMs.
 
-_Note: You can use [ollama](https://ollama.com/), OpenAI, Claude and many other systems as well. I'm using `kronk` since it runs locally (no charges) and supports OpenAI API._
+_Note: You can use [ollama](https://ollama.com/), OpenAI, Claude and many other systems as well. I'm using `Kronk` since it runs locally (no charges) and supports OpenAI API._
 
-Run `go install github.com/ardanlabs/kronk/cmd/kronk@latest`, `kronk` will be installed to `$(go env GOPATH)/bin`, 
-which in most systems is `~/go/bin`. You can run `kronk` as `~/go/bin/kronk` or add `$(go env GOPATH)/bin` to the `PATH` environment variable.
+Run
+
+`go install github.com/ardanlabs/kronk/cmd/kronk@latest`
+
+`Kronk` will be installed to `$(go env GOPATH)/bin`, which in most systems is `~/go/bin`. You can run `kronk` as `~/go/bin/kronk` or add `$(go env GOPATH)/bin` to the `PATH` environment variable.
 
 Start kronk with: `kronk server start`.
 
@@ -37,10 +38,10 @@ $ kronk model pull https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-
 
 You might want to use other models, you can query HuggingFace to find a suitable model and then get the URL for the `.gguf` file.
 
-
 ### Architecture Overview
 
-LLMs don't have memory, in every call you need to provide all the relevant information they need (called context) in order to answer you.
+LLMs don't have memory, so in every call you need to provide all the relevant information they need (called context) in order for the model to answer you.
+
 Our application flow will be:
 
 - Ask LLM to generate SQL based on user question
@@ -51,11 +52,9 @@ Our application will run a loop that will accept a user query and then run the a
 
 ### Initialization
 
-First, you'll create connections to the `ollama` and to the database.
+First, you'll create connections to `kronk` and to the database.
 
 **Listing 1: LLM and Database connections**
-
-
 ```go
 092 func main() {
 093     if os.Getenv("DEBUG") != "" {
@@ -88,10 +87,7 @@ First, you'll create connections to the `ollama` and to the database.
 120     defer db.Close()
 ```
 
-Listing 1 shows initial connection.
-On lines 93-101 you get options from the environment: If you're in debug mode and the kronk server base URL.
-On lines 104-108 you connect to `kronk` with the required model and base URL. Since the `openai` requires a key, we create a fake key that `kronk` will ignore.  
-On lines 115-120 you connect to the database.
+Listing 1 shows initial connection. On lines 93-101 you get options from the environment: If you're in debug mode and the kronk server base URL. On lines 104-108 you connect to `kronk` with the required model and base URL. Since the `openai` requires a key, we create a fake key that `kronk` will ignore. On lines 115-120 you connect to the database.
 
 _Note: I'm using [duckdb](https://duckdb.org/) since it's simple to use, but this code can work with any SQL database._
 
@@ -100,7 +96,6 @@ _Note: I'm using [duckdb](https://duckdb.org/) since it's simple to use, but thi
 Let's look at the loop that asks the user for a question and returns an answer:
 
 **Listing 2: User Loop**
-
 ```go
 122     ctx := context.Background()
 123     fmt.Print("Welcome to bikes data system! Ask away.\n>>> ")
@@ -129,25 +124,18 @@ Let's look at the loop that asks the user for a question and returns an answer:
 146 
 147     fmt.Println("\nCiao!")
 148 }
-
 ```
 
-Listing 2 shows the question/answer loop, which is the second part of `main`.
-On line 122 you use `context.Background()` as the context. You'd probably want to have a time limit.
-One line 123 you print a greeting and on line 124 you create a scanner.
-One lines 126-140 you loop over user questions and call `queryLLM` to get an answer.
+Listing 2 shows the question/answer loop, which is the second part of `main`. On line 122 you use `context.Background()` as the context. You'd probably want to have a time limit. One line 123 you print a greeting and on line 124 you create a scanner. One lines 126-140 you loop over user questions and call `queryLLM` to get an answer.
 
 ### Querying LLMs
 
-Before querying the LLM, you need to construct a prompt.
-You need two prompts:
+Before querying the LLM, you need to construct a prompt. You need two prompts:
+
 - Generate SQL query from user question
 - Given user question and answer from database, answer the user
 
 **Listing 3: Prompts**
-
-Listing 3 shows the prompts.
-
 ```go
 021 var (
 022     //go:embed prompts/sql.txt
@@ -158,12 +146,9 @@ Listing 3 shows the prompts.
 027 )
 ```
 
-Listing 3 shows the prompts
-On lines 21-27 you use `go:embed` directive to embed the prompt from a text file.
+Listing 3 shows the prompts. On lines 21-27 you use `go:embed` directive to embed the prompt from a text file.
 
-Using text files is easier and allows you to edit and play with prompt without changing the code.
-Crafting a good prompt is an art (that I'm still learning).
-Play around with several versions of prompts until you get good and consistent results from the LLM.
+Using text files is easier and allows you to edit and play with prompts without changing the code. Crafting a good prompt is an art (that I'm still learning). Play around with several versions of prompts until you get good and consistent results from the LLM.
 
 The SQL prompt is:
 
@@ -204,7 +189,6 @@ Database results in CSV format:
 Armed with user questions and the prompts, you can now query the LLM.
 
 **Listing 4: queryLLM**
-
 ```go
 060 func queryLLM(ctx context.Context, llm *openai.LLM, db *sql.DB, question string) (string, error) {
 061     prompt := fmt.Sprintf(sqlPrompt, question)
@@ -239,18 +223,11 @@ Armed with user questions and the prompts, you can now query the LLM.
 090 }
 ```
 
-Listing 4 shows how to query the LLM.
-On line 61 you create a prompt that will return SQL and on line 64 you query the LLM with the prompt.
-On line 70 you query the database using the returned SQL.
-One line 76 you convert the return database rows to CSV.
-On line 83 you generate a prompt for the final answer and on line 84 you call the LLM with this prompt.
-Finally on line 98 you return the answer from the LLM.
+Listing 4 shows how to query the LLM. On line 61 you create a prompt that will return SQL and on line 64 you query the LLM with the prompt. On line 70 you query the database using the returned SQL. On line 76 you convert the return database rows to CSV. On line 83 you generate a prompt for the final answer and on line 84 you call the LLM with this prompt. Finally on line 98 you return the answer from the LLM.
 
 _Note: On lines 68 and 81 you use `slog.Debug` to emit intermediate results, this is very helpful when debugging your applications. `slog.Debug` will emit logs only if the `DEBUG` environment variable is set to non-empty value (say `yes`)._
 
-
 **Listing 5: Convert Rows to CSV**
-
 ```go
 029 func rowsToCSV(rows *sql.Rows) (string, error) {
 030     cols, err := rows.Columns()
@@ -311,8 +288,7 @@ Ciao!
 
 ### Summary
 
-In about 150 lines of code we wrote a system that allows users to query a database using plain English.
-Using LLMs from Go is simple, most of the time you'll spend tweaking prompts to get good results.
-As usual, you can see the code and database [in the GitHub repo](https://github.com/353words/llm-sql)
+In about 150 lines of code we wrote a system that allows users to query a database using plain English. Using LLMs from Go is simple, most of the time you'll spend tweaking prompts to get good results. As usual, you can see the code and database [in the GitHub repo](https://github.com/353words/llm-sql)
 
 How are you using LLMs in your Go code? Let me know at miki@ardanlabs.com
+
